@@ -1,0 +1,25 @@
+# Environment variables
+.env
+
+# Python virtual env
+venv/
+backend/venv/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# ChromaDB
+backend/chroma_db/
+chroma_db/
+
+# Databases
+*.db
+*.sqlite3
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# VS Code
+.vscode/
