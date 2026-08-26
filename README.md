@@ -4,6 +4,9 @@
 
 > **Academic Buddy** is a full-stack AI-powered learning platform that transforms lecture notes and previous-year question papers (PYQs) into an interactive academic assistant for **question answering, quiz generation, answer evaluation, exam analytics, and personalized revision planning**.
 
+| High-yield topic predictor | Machine learning model forecasting which topics are likely to reappear in upcoming exams, with an explanation for each prediction |
+| Prompt injection defense | Layered protection for the chat pipeline against both direct attacks and attacks hidden inside uploaded documents |
+
 ---
 
 ## 🚀 Overview
@@ -326,6 +329,48 @@ Quiz Presented to Student
 Students can also generate multiple questions for a selected topic.
 
 ---
+
+## High-Yield Topic Predictor
+
+The existing PYQ engine ranked topics using simple aggregation — frequency counts and total marks. This addition trains a classifier that forecasts whether a topic will appear in the next exam, based only on patterns visible in prior years, along with an explanation of why each prediction was made.
+
+**Approach.** For every topic and year, features are built using only the years strictly before that year, and the label is whether the topic actually appeared in that year. This avoids leaking future information into training. Features include total prior appearances, number of prior years the topic was seen, a recency-weighted appearance score, years since the topic last appeared, average marks, average difficulty, and appearance rate.
+
+Two models were compared, logistic regression and random forest, evaluated using leave-one-year-out validation: train on every year before year Y, test on year Y, repeated across all available years. This simulates genuinely forecasting forward in time rather than testing on a random split, which would let future information leak into training.
+
+**Results, averaged across four held-out years:**
+
+| Model | Accuracy | Precision | Recall | F1 |
+|---|---|---|---|---|
+| Logistic Regression | 0.688 | 0.851 | 0.677 | 0.754 |
+| Random Forest | 0.771 | 0.858 | 0.823 | 0.836 |
+
+Random forest was selected as the final model. Full year-by-year results are in `topic_predictor_eval_results.csv`.
+
+Worth noting: on this structured, tabular data, random forest outperforms logistic regression — the reverse of what happens on TF-IDF text features in a companion text classification project, where linear models win. This is expected. Tree-based models exploit non-linear interactions between a handful of numeric features well, while linear models are better suited to high-dimensional sparse text.
+
+**Explainability.** Each prediction comes with a SHAP-based breakdown of which features drove it — for example, a topic might be flagged high-yield mainly because of a strong recency score and a short gap since its last appearance. A summary plot across all predictions is saved as `shap_summary_plot.png`.
+
+**A limitation worth stating plainly:** the current dataset used to train and demonstrate this model is seeded rather than pulled from real uploaded papers, since no course has uploaded enough historical PYQs yet. In this seed data, average marks and appearance frequency are correlated by construction, which means marks currently dominate the model's feature importance. That may partly reflect this artificial correlation rather than a pattern that holds on real data. Once real PYQ uploads accumulate, this analysis should be rerun to check whether the correlation still holds before trusting the feature importances at face value.
+
+## Prompt Injection Defense
+
+The chat pipeline inserts both the student's question and retrieved document chunks directly into the prompt sent to the LLM. This creates two attack surfaces. A student's own question could contain an attack, such as asking the model to ignore its instructions. More subtly, an uploaded document could contain hidden text instructing the model to behave differently once that document is retrieved and inserted as context — a documented vulnerability in retrieval-augmented systems generally, not specific to this app.
+
+**Defense architecture, in three layers:**
+
+1. Pattern-based detection flags known injection phrasings in both questions and retrieved chunks. This is used for logging and monitoring, not as the primary defense, since fixed patterns can be evaded by rephrasing.
+2. Structural isolation is the primary defense. Retrieved context is wrapped in explicit document tags, with an instruction telling the model that content inside those tags is reference material to cite from, never a command to follow. This holds even when the pattern-matching layer misses a rephrased attack.
+3. An output-side check flags responses that show signs of the instruction hierarchy being violated, such as the model discussing its own system prompt.
+
+**Red-team evaluation results:**
+
+| Test set | Accuracy | Precision | Recall |
+|---|---|---|---|
+| Direct injection, in questions | 93.3 percent | 85.7 percent | 100 percent |
+| Indirect injection, in document chunks | 80.0 percent | — | — |
+
+The detection layer caught all six direct attacks tested, with one false positive on a legitimate question that happened to contain phrasing resembling an attack pattern. On indirect injection, it missed one of three malicious chunks, where the attack was phrased in a way the pattern list didn't anticipate. This is an expected outcome and the reason structural isolation, not pattern matching, is the primary defense: even a chunk the detector misses is still wrapped in document tags with explicit instructions telling the model never to follow commands found there. Full results are in `security_eval_questions.csv` and `security_eval_chunks.csv`.
 
 # 🎯 Feature 3 — Answer Evaluation
 
@@ -747,12 +792,13 @@ The API layer separates frontend interaction from business logic and AI processi
 * Metadata extraction
 * REST API design
 * Structured data processing
+| scikit-learn | High-yield topic predictor (Random Forest, Logistic Regression) |
+| SHAP | Explainability for topic predictions |
 
 ---
 
 # 📂 Project Structure
 
-> Update this section to exactly match your repository structure if your folders differ.
 
 ```text
 Academic-Buddy/
@@ -783,6 +829,11 @@ Academic-Buddy/
 │   └── revision.png
 │
 └── README.md
+├── seed_pyq_data.py              generates realistic multi-year sample data
+├── train_topic_predictor.py      trains and temporally validates the topic predictor
+├── explain_predictions.py        SHAP explainability for predictions
+├── evaluate_security.py          red-team test suite for prompt injection
+├── backend/security/             prompt injection defense module
 ```
 
 ---
