@@ -16,7 +16,7 @@ def get_topic_frequency(course_code: str, limit: int = 15) -> List[Dict[str, Any
                 COUNT(*)                                  AS frequency,
                 SUM(marks)                                AS total_marks,
                 ROUND(AVG(marks), 1)                      AS avg_marks,
-                GROUP_CONCAT(DISTINCT year ORDER BY year) AS years_appeared,
+                GROUP_CONCAT(DISTINCT year) AS years_appeared,
                 GROUP_CONCAT(DISTINCT question_type)      AS question_types
             FROM pyq_questions
             WHERE course_code = ?
